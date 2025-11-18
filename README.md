@@ -15,12 +15,12 @@ A modern, real-time multiplayer Jeopardy-style trivia game designed for Veterina
 
 ## 🛠 Tech Stack
 
-*   **Framework**: Astro
-*   **Frontend Library**: React 18
+*   **Framework**: React 18
 *   **Styling**: Tailwind CSS
 *   **AI**: Google GenAI SDK (@google/genai)
 *   **Networking**: PeerJS (WebRTC for peer-to-peer connections)
-*   **Deployment**: Optimized for Cloudflare Pages
+*   **Local Development**: Vite
+*   **Deployment**: Optimized for static hosting platforms like Cloudflare Pages.
 
 ## 📦 Local Development
 
@@ -38,31 +38,32 @@ A modern, real-time multiplayer Jeopardy-style trivia game designed for Veterina
 3.  **Set up Environment Variables**
     Create a `.env` file in the root directory to store your API key locally:
     ```env
-    API_KEY=your_google_gemini_api_key
+    VITE_API_KEY=your_google_gemini_api_key
     ```
-    *Get an API key from [Google AI Studio](https://aistudio.google.com/).*
+    *Get an API key from [Google AI Studio](https://aistudio.google.com/).* 
+    *Note: Vite requires environment variables exposed to the client to be prefixed with `VITE_`.*
 
 4.  **Run Development Server**
     ```bash
     npm run dev
     ```
-    Open `http://localhost:4321` in your browser.
+    Open the local URL provided by Vite in your browser.
 
 ## ☁️ Deployment (Cloudflare Pages)
 
-This project is configured to deploy seamlessly to Cloudflare Pages.
+This project can be deployed seamlessly as a static site to Cloudflare Pages.
 
 1.  Push your code to a GitHub repository.
 2.  Log in to the [Cloudflare Dashboard](https://dash.cloudflare.com/) and go to **Workers & Pages**.
 3.  Click **Create Application** > **Pages** > **Connect to Git**.
 4.  Select your repository.
 5.  **Build Configuration**:
-    *   **Framework Preset**: `Astro`
+    *   **Framework Preset**: `Vite`
     *   **Build Command**: `npm run build`
     *   **Build Output Directory**: `dist`
 6.  **Environment Variables**:
     *   Go to **Settings** > **Environment variables**.
-    *   Add `API_KEY` with your Gemini API Key.
+    *   Add `VITE_API_KEY` with your Gemini API Key.
 7.  Click **Save and Deploy**.
 
 ## 📝 CSV Upload Format

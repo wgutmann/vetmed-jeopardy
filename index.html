@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vet Med Jeopardy</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'jeopardy-blue': '#060CE9',
+            'jeopardy-gold': '#D69F4C',
+            'jeopardy-dark': '#010a3f',
+          },
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            display: ['"Swiss 911"', 'Impact', 'sans-serif'],
+          },
+          keyframes: {
+            'fade-in': {
+              '0%': { opacity: '0' },
+              '100%': { opacity: '1' },
+            },
+            'zoom-in': {
+              '0%': { transform: 'scale(0.95)' },
+              '100%': { transform: 'scale(1)' },
+            },
+            'slide-in-from-left-4': {
+                '0%': { transform: 'translateX(-1rem)', opacity: '0' },
+                '100%': { transform: 'translateX(0)', opacity: '1' },
+            },
+            'slide-in-from-bottom-4': {
+                '0%': { transform: 'translateY(1rem)', opacity: '0' },
+                '100%': { transform: 'translateY(0)', opacity: '1' },
+            }
+          },
+          animation: {
+            'in': 'fade-in 0.5s ease-out',
+            'spin-slow': 'spin 3s linear infinite',
+            'delay-200': '200ms',
+            'delay-500': '500ms',
+          }
+        }
+      },
+      plugins: [
+        function({ addUtilities }) {
+            const newUtilities = {
+                '.animation-delay-200': {
+                    'animation-delay': '200ms',
+                },
+                '.animation-delay-500': {
+                    'animation-delay': '500ms',
+                },
+                '.animate-in': {
+                    animation: 'fade-in 0.5s ease-out'
+                },
+                '.zoom-in': {
+                    animation: 'zoom-in 0.5s ease-out'
+                },
+                '.slide-in-from-left-4': {
+                    animation: 'slide-in-from-left-4 0.5s ease-out'
+                },
+                '.slide-in-from-bottom-4': {
+                    animation: 'slide-in-from-bottom-4 0.5s ease-out'
+                },
+                '.scrollbar-hide': {
+                  /* Firefox */
+                  'scrollbar-width': 'none',
+                  /* Safari and Chrome */
+                  '&::-webkit-scrollbar': {
+                    display: 'none'
+                  }
+                }
+            }
+            addUtilities(newUtilities, ['responsive', 'hover'])
+        }
+      ]
+    }
+  </script>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    @font-face {
+      font-family: 'Swiss 911';
+      src: url('https://db.onlinewebfonts.com/t/080c44a83e026a2756a53d3999e52a8b.woff2') format('woff2');
+      font-weight: bold;
+      font-style: normal;
+    }
+  </style>
+
+  <!-- PeerJS for multiplayer -->
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+
+  <!-- Import Map -->
+  <script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://esm.sh/@google/genai@0.14.0",
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "vite": "https://aistudiocdn.com/vite@^7.2.2",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1"
+  }
+}
+</script>
+
+</head>
+<body class="bg-jeopardy-dark">
+  <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>
