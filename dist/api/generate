@@ -1,0 +1,1 @@
+{"message":"VetMed Jeopardy Board Generator API","method":"POST","description":"Generate a veterinary medicine Jeopardy board","body":{"existingCategories":"optional array of existing categories to hybridize with AI generation"}}

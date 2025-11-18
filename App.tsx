@@ -7,6 +7,7 @@ import { LoadingScreen } from './components/LoadingScreen';
 import { ScoreBoard } from './components/ScoreBoard';
 import { PlayerController } from './components/PlayerController';
 import { PRE_ID, generateRoomCode } from './services/network';
+import Peer from 'peerjs';
 
 const App: React.FC = () => {
   // Navigation State
@@ -16,9 +17,13 @@ const App: React.FC = () => {
   const [roomCode, setRoomCode] = useState('');
   const [status, setStatus] = useState<GameStatus>(GameStatus.IDLE);
   const [boardData, setBoardData] = useState<GameBoardData | null>(null);
+  const [isPreviewing, setIsPreviewing] = useState(false);
   const [players, setPlayers] = useState<Player[]>([]);
   const [activeClue, setActiveClue] = useState<Clue | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Tracks an in-progress generation request so the UI can keep the loading
+  // screen visible until the server responds and the board is applied.
+  const [isGenerating, setIsGenerating] = useState(false);
   const [gameSource, setGameSource] = useState<'AI' | 'CSV'>('AI');
   const [csvContent, setCsvContent] = useState('');
 
@@ -36,6 +41,9 @@ const App: React.FC = () => {
   // Networking Refs
   const peerRef = useRef<any>(null);
   const connectionsRef = useRef<Map<string, any>>(new Map());
+  const lastPongRef = useRef<Map<string, number>>(new Map());
+  const heartbeatTimerRef = useRef<any>(null);
+  const reconnectAttemptsRef = useRef<number>(0);
 
   // ---------------------------------------------------------------------------
   // HOST LOGIC
@@ -47,11 +55,23 @@ const App: React.FC = () => {
     setRoomCode(code);
 
     // @ts-ignore
-    const peer = new window.Peer(`${PRE_ID}${code}`);
+    const peer = new Peer(`${PRE_ID}${code}`);
     peerRef.current = peer;
 
     peer.on('open', (id: string) => {
       console.log('Host Peer ID:', id);
+      // Start heartbeat to all clients every 5s
+      if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
+      heartbeatTimerRef.current = setInterval(() => {
+        broadcast({ type: 'PING', payload: { t: Date.now() } });
+        // Mark any clients stale if no PONG in last 15s
+        const now = Date.now();
+        setPlayers(prev => prev.map(p => {
+          const last = lastPongRef.current.get(p.id) || 0;
+          const isConnected = now - last < 15000 && !!connectionsRef.current.get(p.id)?.open;
+          return { ...p, isConnected };
+        }));
+      }, 5000);
     });
 
     peer.on('connection', (conn: any) => {
@@ -59,6 +79,13 @@ const App: React.FC = () => {
         // Wait for JOIN message
         conn.on('data', (data: NetworkMessage) => {
           handleHostMessage(conn, data);
+        });
+        conn.on('close', () => {
+          setPlayers(prev => prev.map(p => (p.id === conn.peer ? { ...p, isConnected: false } : p)));
+          connectionsRef.current.delete(conn.peer);
+        });
+        conn.on('error', () => {
+          setPlayers(prev => prev.map(p => (p.id === conn.peer ? { ...p, isConnected: false } : p)));
         });
       });
     });
@@ -93,6 +120,7 @@ const App: React.FC = () => {
            return [...prev, newPlayer];
         });
         connectionsRef.current.set(conn.peer, conn);
+        lastPongRef.current.set(conn.peer, Date.now());
         
         // Send Welcome / Current State
         conn.send({ type: 'WELCOME', payload: { score: 0 } });
@@ -107,6 +135,16 @@ const App: React.FC = () => {
            conn.send({ type: 'CLUE_SELECTED', payload: { ...activeClue, answer: 'HIDDEN' } });
            conn.send({ type: 'BUZZER_STATUS', payload: buzzerState });
         }
+        break;
+      case 'RESYNC':
+        conn.send({ type: 'BOARD_UPDATE', payload: boardData ? sanitizeBoard(boardData) : null });
+        if (activeClue) conn.send({ type: 'CLUE_SELECTED', payload: { ...activeClue, answer: 'HIDDEN' } });
+        conn.send({ type: 'BUZZER_STATUS', payload: buzzerState });
+        break;
+      case 'PONG':
+        lastPongRef.current.set(conn.peer, Date.now());
+        // mark connected
+        setPlayers(prev => prev.map(p => (p.id === conn.peer ? { ...p, isConnected: true } : p)));
         break;
 
       case 'BUZZ':
@@ -138,45 +176,84 @@ const App: React.FC = () => {
   };
 
   const startHostGame = useCallback(async () => {
-    setStatus(GameStatus.LOADING);
+    // Start game — if boardData already present use it, otherwise generate
     setError(null);
     try {
-      let categories: Category[] = [];
-      
-      if (gameSource === 'CSV') {
-        if (!csvContent.trim()) throw new Error("Please paste CSV content.");
-        const parsed = parseCSV(csvContent);
-        if (parsed.length === 0) throw new Error("Invalid CSV.");
-        
-        // Check completeness: 6 categories, each with 5 clues
-        const isComplete = parsed.length === 6 && parsed.every(c => c.clues.length === 5);
-        
-        if (isComplete) {
-          categories = parsed;
+      setIsGenerating(true);
+      let finalBoard = boardData;
+      if (!finalBoard) {
+        // Need to generate board now
+        setStatus(GameStatus.LOADING);
+        let categories: Category[] = [];
+        if (gameSource === 'CSV') {
+          if (!csvContent.trim()) throw new Error("Please paste CSV content.");
+          const parsed = parseCSV(csvContent);
+          if (parsed.length === 0) throw new Error("Invalid CSV.");
+          const isComplete = parsed.length === 6 && parsed.every(c => c.clues.length === 5);
+          if (isComplete) {
+            categories = parsed;
+          } else {
+              const rawData = await generateGameContent(parsed, { forceReal: !!import.meta.env.VITE_FORCE_REAL_GEN });
+            categories = rawData.categories;
+          }
         } else {
-          console.log("CSV incomplete. Requesting AI completion (Hybrid Mode).");
-          const rawData = await generateGameContent(parsed);
+          const rawData = await generateGameContent([], { forceReal: !!import.meta.env.VITE_FORCE_REAL_GEN });
           categories = rawData.categories;
         }
-      } else {
-        // Pure AI Generation
-        const rawData = await generateGameContent();
-        categories = rawData.categories;
+        finalBoard = processBoardData(categories);
+        setBoardData(finalBoard);
       }
 
-      const finalBoard = processBoardData(categories);
-      setBoardData(finalBoard);
       setStatus(GameStatus.PLAYING);
-      
       // Broadcast initial board to all connected players
       broadcast({ type: 'BOARD_UPDATE', payload: sanitizeBoard(finalBoard) });
-
     } catch (err: any) {
       console.error(err);
       setError(err.message || "Failed to initialize.");
       setStatus(GameStatus.IDLE);
+    } finally {
+      setIsGenerating(false);
     }
   }, [gameSource, csvContent]);
+
+  // Generate a board for preview without changing game `status` or broadcasting.
+  const previewBoard = useCallback(async () => {
+    setError(null);
+    try {
+      setIsGenerating(true);
+      let finalBoard = boardData;
+      if (!finalBoard) {
+        setStatus(GameStatus.LOADING);
+        let categories: Category[] = [];
+        if (gameSource === 'CSV') {
+          if (!csvContent.trim()) throw new Error("Please paste CSV content.");
+          const parsed = parseCSV(csvContent);
+          if (parsed.length === 0) throw new Error("Invalid CSV.");
+          const isComplete = parsed.length === 6 && parsed.every(c => c.clues.length === 5);
+          if (isComplete) {
+            categories = parsed;
+          } else {
+            const rawData = await generateGameContent(parsed);
+            categories = rawData.categories;
+          }
+        } else {
+          const rawData = await generateGameContent();
+          categories = rawData.categories;
+        }
+        finalBoard = processBoardData(categories);
+        setBoardData(finalBoard);
+      }
+      // Only mark previewing once boardData is applied
+      setIsPreviewing(true);
+      setStatus(GameStatus.IDLE);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Failed to generate preview.");
+      setStatus(GameStatus.IDLE);
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [gameSource, csvContent, boardData]);
 
 
   // ---------------------------------------------------------------------------
@@ -189,30 +266,64 @@ const App: React.FC = () => {
       return;
     }
     setJoinError('');
-    
+    // Stable client ID across reloads to allow host-side continuity
+    let stableId = localStorage.getItem('vmj-client-id');
+    if (!stableId) {
+      stableId = `player-${Math.random().toString(36).slice(2, 10)}`;
+      localStorage.setItem('vmj-client-id', stableId);
+    }
+    const peerConfig: any = {
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:global.stun.twilio.com:3478?transport=udp' },
+        ],
+      },
+    };
     // @ts-ignore
-    const peer = new window.Peer(); // Auto-gen ID for client
+    const peer = new Peer(stableId, peerConfig);
     peerRef.current = peer;
 
     peer.on('open', () => {
       const hostId = `${PRE_ID}${clientRoomInput.toUpperCase()}`;
-      const conn = peer.connect(hostId);
+      const connectToHost = () => {
+        const conn = peer.connect(hostId);
+        connectionsRef.current.set('HOST', conn);
 
-      conn.on('open', () => {
-        setMode('PLAYER');
-        conn.send({ type: 'JOIN', payload: { name: clientName } });
-        
-        conn.on('data', (data: NetworkMessage) => {
-          handleClientMessage(data);
+        conn.on('open', () => {
+          setMode('PLAYER');
+          reconnectAttemptsRef.current = 0;
+          conn.send({ type: 'JOIN', payload: { name: clientName } });
+          // Request resync to ensure state
+          conn.send({ type: 'RESYNC', payload: {} });
+          
+          conn.on('data', (data: NetworkMessage) => {
+            handleClientMessage(data);
+          });
         });
-      });
 
-      conn.on('error', () => {
-        setJoinError("Could not connect to host.");
-      });
-      
-      // Keep ref
-      connectionsRef.current.set('HOST', conn);
+        conn.on('close', () => {
+          scheduleReconnect();
+        });
+
+        conn.on('error', () => {
+          scheduleReconnect();
+        });
+      };
+
+      const scheduleReconnect = () => {
+        const attempts = reconnectAttemptsRef.current + 1;
+        reconnectAttemptsRef.current = attempts;
+        const delay = Math.min(30000, 1000 * Math.pow(2, attempts));
+        setTimeout(() => {
+          if (peerRef.current?.disconnected) {
+            try { peerRef.current.reconnect(); } catch {}
+          }
+          connectToHost();
+        }, delay);
+      };
+
+      connectToHost();
     });
 
     peer.on('error', () => {
@@ -225,6 +336,10 @@ const App: React.FC = () => {
       case 'WELCOME':
       case 'UPDATE_PLAYERS':
         if (msg.payload.score !== undefined) setClientScore(msg.payload.score);
+        break;
+      case 'PING':
+        // Reply to host heartbeat
+        connectionsRef.current.get('HOST')?.send({ type: 'PONG', payload: { t: msg.payload?.t } });
         break;
       case 'BOARD_UPDATE':
         setClientBoardData(msg.payload);
@@ -325,6 +440,7 @@ const App: React.FC = () => {
   // ---------------------------------------------------------------------------
 
   const handleClueClick = (clue: Clue) => {
+    // Regular host flow when game is playing
     setActiveClue(clue);
     broadcast({ type: 'CLUE_SELECTED', payload: { ...clue, answer: 'HIDDEN' } });
 
@@ -332,6 +448,11 @@ const App: React.FC = () => {
     const newBuzzerState: BuzzerState = { status: 'LOCKED', buzzedPlayerId: null };
     setBuzzerState(newBuzzerState);
     broadcast({ type: 'BUZZER_STATUS', payload: newBuzzerState });
+  };
+
+  // Preview click — used when reviewing board before starting the game. No broadcasts or buzzer changes.
+  const handlePreviewClueClick = (clue: Clue) => {
+    setActiveClue(clue);
   };
 
   const handleArmBuzzers = () => {
@@ -542,6 +663,15 @@ const App: React.FC = () => {
                    />
                 </div>
               )}
+              <div className="mt-4">
+                <button
+                  onClick={previewBoard}
+                  disabled={isGenerating}
+                  className={`px-4 py-2 rounded-md text-sm text-white/80 ${isGenerating ? 'bg-white/6 cursor-wait' : 'bg-white/10 hover:bg-white/20'}`}
+                >
+                  {isGenerating ? 'Generating…' : 'Preview Board'}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -553,7 +683,7 @@ const App: React.FC = () => {
 
           <button 
             onClick={startHostGame}
-            disabled={players.length === 0}
+            disabled={players.length === 0 || isGenerating}
             className="group relative inline-flex items-center justify-center px-16 py-5 overflow-hidden font-bold text-white rounded-full shadow-2xl transition-all duration-300 hover:scale-105 focus:outline-none disabled:opacity-50 disabled:scale-100 cursor-pointer disabled:cursor-not-allowed"
           >
             <span className="absolute inset-0 w-full h-full bg-gradient-to-br from-blue-600 to-blue-800 opacity-100 group-hover:opacity-90"></span>
@@ -564,7 +694,8 @@ const App: React.FC = () => {
     );
   }
 
-  if (status === GameStatus.LOADING) {
+  // Keep showing the loading screen while a generation request is in progress.
+  if (isGenerating) {
     return <LoadingScreen />;
   }
 
@@ -590,7 +721,20 @@ const App: React.FC = () => {
 
       {/* Main Board */}
       <main className="flex-grow flex items-center">
-        {boardData && (
+        {/* If previewing, show the board in read-only preview mode */}
+        {isPreviewing && boardData && (
+          <div className="w-full">
+            <div className="max-w-7xl mx-auto text-white/70 px-4 md:px-8 mb-2">Preview Mode — clicking clues will NOT broadcast to players</div>
+            <GameBoard 
+              categories={boardData.categories} 
+              onClueClick={(clue) => handlePreviewClueClick(clue)}
+              readOnly={false}
+            />
+          </div>
+        )}
+
+        {/* Live game board when playing */}
+        {!isPreviewing && boardData && (
           <GameBoard 
             categories={boardData.categories} 
             onClueClick={handleClueClick} 
@@ -611,6 +755,7 @@ const App: React.FC = () => {
           buzzerState={buzzerState}
           onArmBuzzers={handleArmBuzzers}
           onResetBuzzers={handleResetBuzzers}
+          isPreview={isPreviewing}
         />
       )}
     </div>

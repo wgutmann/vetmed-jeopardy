@@ -21,7 +21,7 @@ export const ScoreBoard: React.FC<ScoreBoardProps> = ({ players }) => {
           {players.map((player) => (
             <div key={player.id} className="flex flex-col items-center min-w-[80px]">
               <span className="text-jeopardy-gold font-display font-bold text-2xl md:text-3xl drop-shadow-md">
-                ${player.score}
+                {'$' + player.score}
               </span>
               <span className="text-white/80 text-sm font-medium uppercase tracking-wide truncate max-w-[120px]">
                 {player.name}

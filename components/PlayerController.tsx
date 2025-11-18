@@ -20,9 +20,9 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
   activeClue
 }) => {
   
-  let buttonColor = "bg-gray-600";
   let buttonText = "WAIT";
   let disabled = true;
+  let buttonColor = "bg-red-900/50";
 
   if (status === 'ARMED') {
     buttonColor = "bg-green-600 hover:bg-green-500 active:bg-green-400";
@@ -42,7 +42,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
       {/* Header */}
       <div className="bg-blue-900 p-4 flex justify-between items-center border-b border-white/10 shrink-0 z-10 shadow-md">
         <span className="text-white font-bold text-lg truncate max-w-[150px]">{name}</span>
-        <span className="text-jeopardy-gold font-display font-bold text-2xl">${score}</span>
+        <span className="text-jeopardy-gold font-display font-bold text-2xl">{'$' + score}</span>
       </div>
 
       {/* Main Area */}
@@ -52,7 +52,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         {activeClue ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center p-6 bg-jeopardy-blue z-20 animate-in slide-in-from-bottom-4 duration-300">
              <div className="mb-8 text-center space-y-4 max-w-lg flex flex-col items-center">
-               <span className="text-jeopardy-gold font-display font-bold text-4xl">${activeClue.value}</span>
+               <span className="text-jeopardy-gold font-display font-bold text-4xl">{'$' + activeClue.value}</span>
                
                {activeClue.imageUrl && (
                   <img 

@@ -15,24 +15,6 @@ const { title } = Astro.props;
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="generator" content={Astro.generator} />
     <title>{title}</title>
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            colors: {
-              'jeopardy-blue': '#060CE9',
-              'jeopardy-gold': '#D69F4C',
-              'jeopardy-dark': '#010a3f',
-            },
-            fontFamily: {
-              sans: ['Inter', 'sans-serif'],
-            },
-          },
-        },
-      };
-    </script>
   </head>
   <body>
     <slot />

@@ -10,6 +10,7 @@ interface ClueModalProps {
   buzzerState: BuzzerState;
   onArmBuzzers: () => void;
   onResetBuzzers: () => void;
+  isPreview?: boolean;
 }
 
 type ModalStep = 'DAILY_DOUBLE_WAGER' | 'CLUE' | 'ANSWER';
@@ -21,7 +22,8 @@ export const ClueModal: React.FC<ClueModalProps> = ({
   onAwardPoints,
   buzzerState,
   onArmBuzzers,
-  onResetBuzzers
+  onResetBuzzers,
+  isPreview = false
 }) => {
   const [step, setStep] = useState<ModalStep>(clue.isDailyDouble ? 'DAILY_DOUBLE_WAGER' : 'CLUE');
   const [wager, setWager] = useState<number>(0);
@@ -118,7 +120,7 @@ export const ClueModal: React.FC<ClueModalProps> = ({
           <div className="flex flex-col items-center">
              {clue.isDailyDouble && <span className="text-jeopardy-gold text-xs font-bold uppercase tracking-widest mb-1">Daily Double</span>}
              <span className="text-jeopardy-gold text-4xl font-bold font-display drop-shadow-md">
-               ${currentPointValue}
+               {'$' + currentPointValue}
              </span>
           </div>
           <button 
@@ -179,7 +181,7 @@ export const ClueModal: React.FC<ClueModalProps> = ({
         <div className="bg-black/20 p-6 border-t border-white/10 shrink-0">
           
           {/* Phase 1: Buzzer Controls (If not Daily Double) */}
-          {!clue.isDailyDouble && step === 'CLUE' && (
+          {!clue.isDailyDouble && step === 'CLUE' && !isPreview && (
             <div className="flex flex-col items-center gap-4">
               
               {buzzerState.status === 'LOCKED' ? (
@@ -202,6 +204,18 @@ export const ClueModal: React.FC<ClueModalProps> = ({
                 className="px-8 py-2 bg-blue-800 text-white font-bold rounded-full text-sm hover:bg-blue-700 uppercase tracking-wider"
               >
                 Reveal Answer (No Correct Buzz)
+              </button>
+            </div>
+          )}
+
+          {/* Preview mode: simple reveal control */}
+          {isPreview && step === 'CLUE' && (
+            <div className="flex flex-col items-center gap-4">
+              <button
+                onClick={() => setStep('ANSWER')}
+                className="px-8 py-2 bg-blue-800 text-white font-bold rounded-full text-sm hover:bg-blue-700 uppercase tracking-wider"
+              >
+                Reveal Answer
               </button>
             </div>
           )}

@@ -5,21 +5,27 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
+    "dev:key": "powershell -Command \"$env:GEMINI_API_KEY='%npm_config_gemini_key%'; npm run dev -- --host\"",
     "build": "astro build",
     "preview": "astro preview"
   },
   "dependencies": {
+    "@astrojs/cloudflare": "^11.0.0",
     "@astrojs/react": "^3.0.0",
     "@astrojs/tailwind": "^5.0.0",
     "@google/genai": "^1.30.0",
     "astro": "^4.0.0",
     "peerjs": "^1.5.2",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "recast": "^0.23.11",
+    "tslib": "^2.8.1"
   },
   "devDependencies": {
+    "@astrojs/node": "^2.0.2",
     "@types/react": "^18.2.66",
     "@types/react-dom": "^18.2.22",
+    "cross-env": "^10.1.0",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.2.2"
   }

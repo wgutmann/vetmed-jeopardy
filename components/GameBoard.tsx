@@ -49,7 +49,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ categories, onClueClick, r
                   >
                     {!clue.isAnswered && (
                       <span className="text-jeopardy-gold font-display font-bold text-2xl md:text-4xl drop-shadow-sm">
-                        ${clue.value}
+                        {'$' + clue.value}
                       </span>
                     )}
                   </button>

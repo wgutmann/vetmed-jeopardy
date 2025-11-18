@@ -35,7 +35,19 @@ export interface GameBoardData {
 
 // --- Networking Types ---
 
-export type NetworkMessageType = 'JOIN' | 'WELCOME' | 'BUZZ' | 'UPDATE_PLAYERS' | 'BUZZER_STATUS' | 'AWARD' | 'BOARD_UPDATE' | 'CLUE_SELECTED' | 'CLUE_CLOSED';
+export type NetworkMessageType =
+  | 'JOIN'
+  | 'WELCOME'
+  | 'BUZZ'
+  | 'UPDATE_PLAYERS'
+  | 'BUZZER_STATUS'
+  | 'AWARD'
+  | 'BOARD_UPDATE'
+  | 'CLUE_SELECTED'
+  | 'CLUE_CLOSED'
+  | 'PING'
+  | 'PONG'
+  | 'RESYNC';
 
 export interface NetworkMessage {
   type: NetworkMessageType;
