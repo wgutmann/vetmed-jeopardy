@@ -1,0 +1,5 @@
+{
+  "name": "VetMed Jeopardy",
+  "description": "A high-stakes, AI-generated Veterinary Medicine trivia game using Gemini Flash for real-time content generation and answer validation.",
+  "requestFramePermissions": []
+}
