@@ -15,7 +15,8 @@ A modern, real-time multiplayer Jeopardy-style trivia game designed for Veterina
 
 ## 🛠 Tech Stack
 
-*   **Frontend**: React 18, TypeScript, Vite
+*   **Framework**: Astro
+*   **Frontend Library**: React 18
 *   **Styling**: Tailwind CSS
 *   **AI**: Google GenAI SDK (@google/genai)
 *   **Networking**: PeerJS (WebRTC for peer-to-peer connections)
@@ -45,7 +46,7 @@ A modern, real-time multiplayer Jeopardy-style trivia game designed for Veterina
     ```bash
     npm run dev
     ```
-    Open `http://localhost:5173` in your browser.
+    Open `http://localhost:4321` in your browser.
 
 ## ☁️ Deployment (Cloudflare Pages)
 
@@ -56,7 +57,7 @@ This project is configured to deploy seamlessly to Cloudflare Pages.
 3.  Click **Create Application** > **Pages** > **Connect to Git**.
 4.  Select your repository.
 5.  **Build Configuration**:
-    *   **Framework Preset**: `Vite`
+    *   **Framework Preset**: `Astro`
     *   **Build Command**: `npm run build`
     *   **Build Output Directory**: `dist`
 6.  **Environment Variables**:
