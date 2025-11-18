@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type, Schema } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { GameBoardData, Category } from "../types";
 
 // Initialize Gemini Client
@@ -32,7 +32,8 @@ const generateClueImage = async (description: string): Promise<string | undefine
 export const generateGameContent = async (existingCategories: Partial<Category>[] = []): Promise<any> => {
   const model = "gemini-2.5-flash";
 
-  const schema: Schema = {
+  // FIX: Removed deprecated `Schema` type. The schema object is now correctly inferred.
+  const schema = {
     type: Type.OBJECT,
     properties: {
       categories: {
