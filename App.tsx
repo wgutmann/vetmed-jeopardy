@@ -1,13 +1,12 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { GameStatus, GameBoardData, Clue, Player, Category, BuzzerState, NetworkMessage, NetworkMessageType } from './types';
+import { GameStatus, GameBoardData, Clue, Player, Category, BuzzerState, NetworkMessage } from './types';
 import { generateGameContent } from './services/geminiService';
 import { GameBoard } from './components/GameBoard';
 import { ClueModal } from './components/ClueModal';
 import { LoadingScreen } from './components/LoadingScreen';
 import { ScoreBoard } from './components/ScoreBoard';
 import { PlayerController } from './components/PlayerController';
-import { PRE_ID, generateRoomCode } from './services/network';
-import Peer from 'peerjs';
+import { createHostSession, joinRoomSession, connectRealtime, type RealtimeClient } from './services/network';
 
 const App: React.FC = () => {
   // Navigation State
@@ -39,61 +38,55 @@ const App: React.FC = () => {
   const [buzzerState, setBuzzerState] = useState<BuzzerState>({ status: 'LOCKED', buzzedPlayerId: null });
 
   // Networking Refs
-  const peerRef = useRef<any>(null);
-  const connectionsRef = useRef<Map<string, any>>(new Map());
+  const realtimeRef = useRef<RealtimeClient | null>(null);
   const lastPongRef = useRef<Map<string, number>>(new Map());
   const heartbeatTimerRef = useRef<any>(null);
-  const reconnectAttemptsRef = useRef<number>(0);
+  const hostTokenRef = useRef<string | null>(null);
+  const playerSessionRef = useRef<{ token: string; playerId: string; roomCode: string; name: string } | null>(null);
 
   // ---------------------------------------------------------------------------
   // HOST LOGIC
   // ---------------------------------------------------------------------------
 
-  const initializeHost = () => {
+  const initializeHost = async () => {
     setMode('HOST');
-    const code = generateRoomCode();
-    setRoomCode(code);
+    setError(null);
+    try {
+      const session = await createHostSession();
+      hostTokenRef.current = session.hostToken;
+      setRoomCode(session.roomCode);
 
-    // @ts-ignore
-    const peer = new Peer(`${PRE_ID}${code}`);
-    peerRef.current = peer;
+      connectHostRealtime(session.hostToken);
+    } catch (err: any) {
+      console.error('Failed to initialize host session:', err);
+      setError(err?.message || 'Could not start host session');
+    }
+  };
 
-    peer.on('open', (id: string) => {
-      console.log('Host Peer ID:', id);
-      // Start heartbeat to all clients every 5s
-      if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
-      heartbeatTimerRef.current = setInterval(() => {
-        broadcast({ type: 'PING', payload: { t: Date.now() } });
-        // Mark any clients stale if no PONG in last 15s
-        const now = Date.now();
-        setPlayers(prev => prev.map(p => {
-          const last = lastPongRef.current.get(p.id) || 0;
-          const isConnected = now - last < 15000 && !!connectionsRef.current.get(p.id)?.open;
-          return { ...p, isConnected };
-        }));
-      }, 5000);
+  const connectHostRealtime = (token: string) => {
+    realtimeRef.current?.close();
+    realtimeRef.current = connectRealtime({
+      token,
+      role: 'HOST',
+      onPlayerMessage: ({ playerId, message }) => handleHostMessage(playerId, message),
+      onOpen: () => {
+        setError(null);
+        if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
+        heartbeatTimerRef.current = setInterval(() => runHeartbeat(), 5000);
+      },
+      onClose: () => {
+        setError('Lost connection to the signaling service. Attempting to reconnect...');
+      }
     });
+  };
 
-    peer.on('connection', (conn: any) => {
-      conn.on('open', () => {
-        // Wait for JOIN message
-        conn.on('data', (data: NetworkMessage) => {
-          handleHostMessage(conn, data);
-        });
-        conn.on('close', () => {
-          setPlayers(prev => prev.map(p => (p.id === conn.peer ? { ...p, isConnected: false } : p)));
-          connectionsRef.current.delete(conn.peer);
-        });
-        conn.on('error', () => {
-          setPlayers(prev => prev.map(p => (p.id === conn.peer ? { ...p, isConnected: false } : p)));
-        });
-      });
-    });
-
-    peer.on('error', (err: any) => {
-      console.error('Peer Error', err);
-      setError("Connection error. Try refreshing.");
-    });
+  const runHeartbeat = () => {
+    const now = Date.now();
+    realtimeRef.current?.sendToAll({ type: 'PING', payload: { t: now } });
+    setPlayers(prev => prev.map(player => {
+      const last = lastPongRef.current.get(player.id) || 0;
+      return { ...player, isConnected: now - last < 15000 };
+    }));
   };
 
   // Helper to strip answers for client view to prevent easy cheating
@@ -104,11 +97,11 @@ const App: React.FC = () => {
     }))
   });
 
-  const handleHostMessage = (conn: any, msg: NetworkMessage) => {
+  const handleHostMessage = (playerId: string, msg: NetworkMessage) => {
     switch (msg.type) {
       case 'JOIN':
         const newPlayer: Player = {
-          id: conn.peer, // Use Peer ID as unique player ID
+          id: playerId,
           name: msg.payload.name.substring(0, 12), // Limit name length
           score: 0,
           isConnected: true
@@ -119,39 +112,38 @@ const App: React.FC = () => {
            if (exists) return prev;
            return [...prev, newPlayer];
         });
-        connectionsRef.current.set(conn.peer, conn);
-        lastPongRef.current.set(conn.peer, Date.now());
+        lastPongRef.current.set(playerId, Date.now());
         
         // Send Welcome / Current State
-        conn.send({ type: 'WELCOME', payload: { score: 0 } });
+        realtimeRef.current?.sendToPlayer(playerId, { type: 'WELCOME', payload: { score: 0 } });
         
         // Sync Board State if game in progress
         if (boardData) {
-           conn.send({ type: 'BOARD_UPDATE', payload: sanitizeBoard(boardData) });
+           realtimeRef.current?.sendToPlayer(playerId, { type: 'BOARD_UPDATE', payload: sanitizeBoard(boardData) });
         }
         if (activeClue) {
            // Send current clue details (excluding answer logic handled in component if needed, but payload usually raw)
            // We only send question/value/image for display
-           conn.send({ type: 'CLUE_SELECTED', payload: { ...activeClue, answer: 'HIDDEN' } });
-           conn.send({ type: 'BUZZER_STATUS', payload: buzzerState });
+           realtimeRef.current?.sendToPlayer(playerId, { type: 'CLUE_SELECTED', payload: { ...activeClue, answer: 'HIDDEN' } });
+           realtimeRef.current?.sendToPlayer(playerId, { type: 'BUZZER_STATUS', payload: buzzerState });
         }
         break;
       case 'RESYNC':
-        conn.send({ type: 'BOARD_UPDATE', payload: boardData ? sanitizeBoard(boardData) : null });
-        if (activeClue) conn.send({ type: 'CLUE_SELECTED', payload: { ...activeClue, answer: 'HIDDEN' } });
-        conn.send({ type: 'BUZZER_STATUS', payload: buzzerState });
+        realtimeRef.current?.sendToPlayer(playerId, { type: 'BOARD_UPDATE', payload: boardData ? sanitizeBoard(boardData) : null });
+        if (activeClue) realtimeRef.current?.sendToPlayer(playerId, { type: 'CLUE_SELECTED', payload: { ...activeClue, answer: 'HIDDEN' } });
+        realtimeRef.current?.sendToPlayer(playerId, { type: 'BUZZER_STATUS', payload: buzzerState });
         break;
       case 'PONG':
-        lastPongRef.current.set(conn.peer, Date.now());
+        lastPongRef.current.set(playerId, Date.now());
         // mark connected
-        setPlayers(prev => prev.map(p => (p.id === conn.peer ? { ...p, isConnected: true } : p)));
+        setPlayers(prev => prev.map(p => (p.id === playerId ? { ...p, isConnected: true } : p)));
         break;
 
       case 'BUZZ':
         setBuzzerState(current => {
           if (current.status === 'ARMED') {
             // Winner!
-            const winnerId = conn.peer;
+            const winnerId = playerId;
             broadcast({ type: 'BUZZER_STATUS', payload: { status: 'BUZZED', buzzedPlayerId: winnerId } });
             return { status: 'BUZZED', buzzedPlayerId: winnerId };
           }
@@ -162,17 +154,12 @@ const App: React.FC = () => {
   };
 
   const broadcast = (msg: NetworkMessage) => {
-    connectionsRef.current.forEach(conn => {
-      if (conn.open) conn.send(msg);
-    });
+    realtimeRef.current?.sendToAll(msg);
   };
 
   // Sync specific player score
   const syncScoreToPlayer = (playerId: string, newScore: number) => {
-    const conn = connectionsRef.current.get(playerId);
-    if (conn && conn.open) {
-      conn.send({ type: 'UPDATE_PLAYERS', payload: { score: newScore } });
-    }
+    realtimeRef.current?.sendToPlayer(playerId, { type: 'UPDATE_PLAYERS', payload: { score: newScore } });
   };
 
   const startHostGame = useCallback(async () => {
@@ -193,11 +180,11 @@ const App: React.FC = () => {
           if (isComplete) {
             categories = parsed;
           } else {
-              const rawData = await generateGameContent(parsed, { forceReal: !!import.meta.env.VITE_FORCE_REAL_GEN });
+              const rawData = await generateGameContent(parsed);
             categories = rawData.categories;
           }
         } else {
-          const rawData = await generateGameContent([], { forceReal: !!import.meta.env.VITE_FORCE_REAL_GEN });
+          const rawData = await generateGameContent([]);
           categories = rawData.categories;
         }
         finalBoard = processBoardData(categories);
@@ -260,75 +247,39 @@ const App: React.FC = () => {
   // PLAYER CLIENT LOGIC
   // ---------------------------------------------------------------------------
 
-  const joinGame = () => {
+  const joinGame = async () => {
     if (!clientName || !clientRoomInput) {
-      setJoinError("Name and Room Code required.");
+      setJoinError('Name and Room Code required.');
       return;
     }
     setJoinError('');
-    // Stable client ID across reloads to allow host-side continuity
-    let stableId = localStorage.getItem('vmj-client-id');
-    if (!stableId) {
-      stableId = `player-${Math.random().toString(36).slice(2, 10)}`;
-      localStorage.setItem('vmj-client-id', stableId);
-    }
-    const peerConfig: any = {
-      config: {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:global.stun.twilio.com:3478?transport=udp' },
-        ],
-      },
-    };
-    // @ts-ignore
-    const peer = new Peer(stableId, peerConfig);
-    peerRef.current = peer;
+    try {
+      const session = await joinRoomSession(clientRoomInput.trim().toUpperCase(), clientName);
+      playerSessionRef.current = {
+        token: session.playerToken,
+        playerId: session.playerId,
+        roomCode: session.roomCode,
+        name: clientName,
+      };
 
-    peer.on('open', () => {
-      const hostId = `${PRE_ID}${clientRoomInput.toUpperCase()}`;
-      const connectToHost = () => {
-        const conn = peer.connect(hostId);
-        connectionsRef.current.set('HOST', conn);
-
-        conn.on('open', () => {
+      realtimeRef.current?.close();
+      realtimeRef.current = connectRealtime({
+        token: session.playerToken,
+        role: 'PLAYER',
+        onHostMessage: (message) => handleClientMessage(message),
+        onOpen: () => {
           setMode('PLAYER');
-          reconnectAttemptsRef.current = 0;
-          conn.send({ type: 'JOIN', payload: { name: clientName } });
-          // Request resync to ensure state
-          conn.send({ type: 'RESYNC', payload: {} });
-          
-          conn.on('data', (data: NetworkMessage) => {
-            handleClientMessage(data);
-          });
-        });
-
-        conn.on('close', () => {
-          scheduleReconnect();
-        });
-
-        conn.on('error', () => {
-          scheduleReconnect();
-        });
-      };
-
-      const scheduleReconnect = () => {
-        const attempts = reconnectAttemptsRef.current + 1;
-        reconnectAttemptsRef.current = attempts;
-        const delay = Math.min(30000, 1000 * Math.pow(2, attempts));
-        setTimeout(() => {
-          if (peerRef.current?.disconnected) {
-            try { peerRef.current.reconnect(); } catch {}
-          }
-          connectToHost();
-        }, delay);
-      };
-
-      connectToHost();
-    });
-
-    peer.on('error', () => {
-      setJoinError("Connection failed.");
-    });
+          realtimeRef.current?.sendToHost({ type: 'JOIN', payload: { name: clientName } });
+          realtimeRef.current?.sendToHost({ type: 'RESYNC', payload: {} });
+        },
+        onClose: () => {
+          setJoinError('Connection lost. Reconnecting...');
+        },
+      });
+    } catch (err: any) {
+      console.error('Failed to initialize client session:', err);
+      setJoinError(err?.message || 'Failed to join game');
+    }
   };
 
   const handleClientMessage = (msg: NetworkMessage) => {
@@ -339,7 +290,7 @@ const App: React.FC = () => {
         break;
       case 'PING':
         // Reply to host heartbeat
-        connectionsRef.current.get('HOST')?.send({ type: 'PONG', payload: { t: msg.payload?.t } });
+        realtimeRef.current?.sendToHost({ type: 'PONG', payload: { t: msg.payload?.t } });
         break;
       case 'BOARD_UPDATE':
         setClientBoardData(msg.payload);
@@ -360,11 +311,15 @@ const App: React.FC = () => {
   };
 
   const sendBuzz = () => {
-    const conn = connectionsRef.current.get('HOST');
-    if (conn) {
-      conn.send({ type: 'BUZZ', payload: {} });
-    }
+    realtimeRef.current?.sendToHost({ type: 'BUZZ', payload: {} });
   };
+
+  useEffect(() => {
+    return () => {
+      realtimeRef.current?.close();
+      if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
+    };
+  }, []);
 
 
   // ---------------------------------------------------------------------------

@@ -1,305 +1,257 @@
 import type { APIRoute } from 'astro';
-import { Type } from '@google/genai';
 
-// Use the GenAI REST API via fetch to improve portability with Cloudflare Pages.
+const JSON_HEADERS = { 'Content-Type': 'application/json' } as const;
+const MAX_CATEGORIES = 6;
+const CLUE_VALUES = [200, 400, 600, 800, 1000];
+const REQUEST_TIMEOUT_MS = 25_000;
+
+const RESPONSE_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    categories: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          title: { type: 'STRING' },
+          clues: {
+            type: 'ARRAY',
+            items: {
+              type: 'OBJECT',
+              properties: {
+                value: { type: 'INTEGER' },
+                question: { type: 'STRING' },
+                answer: { type: 'STRING' },
+                imageUrl: { type: 'STRING' },
+                imagePrompt: { type: 'STRING' },
+              },
+              required: ['value', 'question', 'answer'],
+            },
+          },
+        },
+        required: ['title', 'clues'],
+      },
+    },
+  },
+  required: ['categories'],
+} as const;
+
 export const GET: APIRoute = async () => {
-  return new Response(JSON.stringify({
-    message: 'VetMed Jeopardy Board Generator API',
-    method: 'POST',
-    description: 'Generate a veterinary medicine Jeopardy board',
-    body: {
-      existingCategories: 'optional array of existing categories to hybridize with AI generation'
-    }
-  }), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
-  });
+  return new Response(
+    JSON.stringify({
+      message: 'VetMed Jeopardy Board Generator API',
+      method: 'POST',
+      description: 'Generate a veterinary medicine Jeopardy board',
+      body: {
+        existingCategories: 'optional array of existing categories to hybridize with AI generation',
+      },
+    }),
+    { status: 200, headers: JSON_HEADERS }
+  );
 };
 
 export const POST: APIRoute = async ({ request, locals }) => {
+  const apiKey = resolveGeminiKey(locals);
+  if (!apiKey) {
+    return new Response(JSON.stringify({ error: 'GEMINI_API_KEY is not configured in environment' }), { status: 500, headers: JSON_HEADERS });
+  }
+
+  const modelName = resolveModelName();
+  const body = await request.json().catch(() => ({}));
+  const existingCategories = Array.isArray(body?.existingCategories) ? body.existingCategories : [];
+  const sanitizedForPrompt = sanitizeExistingCategories(existingCategories);
+  const prompt = buildPrompt(sanitizedForPrompt);
+  const payload = buildGenAiPayload(prompt);
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(`GenAI request timed out after ${REQUEST_TIMEOUT_MS}ms`), REQUEST_TIMEOUT_MS);
+
   try {
-    // Resolve GEMINI_API_KEY from several fallbacks.
-    // Priority: Cloudflare Pages secret > local .env.local > .env > process.env
-    const localsEnv = (locals as any)?.runtime?.env || (locals as any)?.env;
-    const apiKey = localsEnv?.GEMINI_API_KEY || (import.meta.env as any).GEMINI_API_KEY || process.env.GEMINI_API_KEY;
-
-    const body = await request.json().catch(() => ({}));
-    const forceReal = !!(body?.forceReal || (import.meta.env as any).VITE_FORCE_REAL_GEN === '1' || process.env.FORCE_REAL_GEN === '1');
-
-    // Allow overriding apiKey from request body in local dev (use with caution)
-    const overrideKey = body?.apiKey;
-    const effectiveApiKey = overrideKey || apiKey;
-
-    // For development without API key, return mock data unless forceReal requested
-    if (!effectiveApiKey && !forceReal) {
-      console.log('No GEMINI_API_KEY found, returning mock data for development');
-      return new Response(JSON.stringify({
-        categories: [
-          {
-            title: "Veterinary Anatomy",
-            clues: [
-              { value: 200, question: "What is the largest organ in the canine body?", answer: "The skin" },
-              { value: 400, question: "How many chambers does a dog's heart have?", answer: "Four" },
-              { value: 600, question: "What bone connects the shoulder to the elbow?", answer: "The humerus" },
-              { value: 800, question: "What is the medical term for the windpipe?", answer: "Trachea" },
-              { value: 1000, question: "What gland produces insulin in dogs?", answer: "Pancreas" }
-            ]
-          },
-          {
-            title: "Common Diseases",
-            clues: [
-              { value: 200, question: "What viral disease causes vomiting and diarrhea in puppies?", answer: "Parvovirus" },
-              { value: 400, question: "What is the most common type of heart disease in dogs?", answer: "Mitral valve disease" },
-              { value: 600, question: "What bacterial infection affects a dog's ears?", answer: "Otitis externa" },
-              { value: 800, question: "What autoimmune disease causes joint pain in dogs?", answer: "Rheumatoid arthritis" },
-              { value: 1000, question: "What parasitic infection is transmitted by ticks?", answer: "Lyme disease" }
-            ]
-          },
-          {
-            title: "Pharmacology",
-            clues: [
-              { value: 200, question: "What antibiotic is commonly used for skin infections?", answer: "Cephalexin" },
-              { value: 400, question: "What drug is used to control seizures in dogs?", answer: "Phenobarbital" },
-              { value: 600, question: "What is the active ingredient in Benadryl?", answer: "Diphenhydramine" },
-              { value: 800, question: "What steroid is used for anti-inflammatory purposes?", answer: "Prednisone" },
-              { value: 1000, question: "What anticoagulant is used to prevent blood clots?", answer: "Heparin" }
-            ]
-          },
-          {
-            title: "Surgery",
-            clues: [
-              { value: 200, question: "What is the most common surgical procedure in dogs?", answer: "Spaying" },
-              { value: 400, question: "What type of anesthesia is commonly used in veterinary surgery?", answer: "Isoflurane" },
-              { value: 600, question: "What instrument is used to cut tissue during surgery?", answer: "Scalpel" },
-              { value: 800, question: "What is the term for surgical removal of a limb?", answer: "Amputation" },
-              { value: 1000, question: "What type of suture is absorbable?", answer: "Vicryl" }
-            ]
-          },
-          {
-            title: "Nutrition",
-            clues: [
-              { value: 200, question: "What nutrient is essential for healthy bones?", answer: "Calcium" },
-              { value: 400, question: "What vitamin is produced by sunlight exposure?", answer: "Vitamin D" },
-              { value: 600, question: "What is the main energy source in dog food?", answer: "Carbohydrates" },
-              { value: 800, question: "What mineral is important for thyroid function?", answer: "Iodine" },
-              { value: 1000, question: "What fatty acid is important for skin health?", answer: "Omega-3" }
-            ]
-          },
-          {
-            title: "Visual Diagnosis",
-            clues: [
-              { value: 200, question: "What condition shows as redness and swelling of the gums?", answer: "Gingivitis" },
-              { value: 400, question: "What skin condition appears as circular, red lesions?", answer: "Ringworm" },
-              { value: 600, question: "What eye condition causes cloudiness of the cornea?", answer: "Corneal ulcer" },
-              { value: 800, question: "What dental condition shows brown tartar buildup?", answer: "Periodontal disease" },
-              { value: 1000, question: "What abdominal condition shows distension and pain?", answer: "Bloat" }
-            ]
-          }
-        ]
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    const existingCategories = Array.isArray(body?.existingCategories) ? body.existingCategories : [];
-    const schema = {
-      type: Type.OBJECT,
-      properties: {
-        categories: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              clues: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    value: { type: Type.INTEGER },
-                    question: { type: Type.STRING },
-                    answer: { type: Type.STRING },
-                    imageUrl: { type: Type.STRING },
-                    imagePrompt: { type: Type.STRING },
-                  },
-                  required: ['value', 'question', 'answer'],
-                },
-              },
-            },
-            required: ['title', 'clues'],
-          },
-        },
-      },
-      required: ['categories'],
-    };
-
-    let prompt = `
-      Create a rigorous Veterinary Medicine Jeopardy game board.
-      Generate 6 distinct categories.
-      For EACH category, generate exactly 5 clues with values: 200, 400, 600, 800, 1000.
-      Ensure the facts are medically accurate and suitable for veterinary students or professionals.
-    `;
-
-    if (existingCategories.length > 0) {
-      prompt += `
-        IMPORTANT - HYBRID MODE:
-        The user has provided some existing game board data (categories and clues).
-        You MUST include the provided categories and clues EXACTLY as they appear.
-        If a provided category has fewer than 5 clues, generate the missing clues.
-        If fewer than 6 categories exist, add new distinct categories to reach 6 total.
-        Prefer one category named 'Visual Diagnosis' if not already present.
-        PROVIDED DATA: ${JSON.stringify(existingCategories)}
-      `;
-    } else {
-      prompt += `
-        Include one category named 'Visual Diagnosis'. For that category, include an 'imagePrompt' describing a specific medical image.
-      `;
-    }
-
-    // Build the REST request payload following the GenAI REST API structure.
-    // We ask for a JSON response and provide a response schema to make parsing deterministic.
-    const restPayload = {
-      contents: [{
-        parts: [{
-          text: prompt
-        }]
-      }],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        responseSchema: schema,
-        temperature: 0.7,
-      },
-    };
-
-    const genAiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${effectiveApiKey}`;
-    const resp = await fetch(genAiEndpoint, {
+    const resp = await fetch(endpoint, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(restPayload),
+      headers: JSON_HEADERS,
+      body: JSON.stringify(payload),
+      signal: controller.signal,
     });
-
+    const raw = await resp.text();
     if (!resp.ok) {
-      const txt = await resp.text().catch(() => '');
-      // If API key has referrer restrictions (common in dev), fall back to mock data
-      if (!forceReal && resp.status === 403 && txt.includes('API_KEY_HTTP_REFERRER_BLOCKED')) {
-        console.log('API key has referrer restrictions, falling back to mock data for development');
-        return new Response(JSON.stringify({
-          categories: [
-            {
-              title: "Veterinary Anatomy",
-              clues: [
-                { value: 200, question: "What is the largest organ in the canine body?", answer: "The skin" },
-                { value: 400, question: "How many chambers does a dog's heart have?", answer: "Four" },
-                { value: 600, question: "What bone connects the shoulder to the elbow?", answer: "The humerus" },
-                { value: 800, question: "What is the medical term for the windpipe?", answer: "Trachea" },
-                { value: 1000, question: "What gland produces insulin in dogs?", answer: "Pancreas" }
-              ]
-            },
-            {
-              title: "Common Diseases",
-              clues: [
-                { value: 200, question: "What viral disease causes vomiting and diarrhea in puppies?", answer: "Parvovirus" },
-                { value: 400, question: "What is the most common type of heart disease in dogs?", answer: "Mitral valve disease" },
-                { value: 600, question: "What bacterial infection affects a dog's ears?", answer: "Otitis externa" },
-                { value: 800, question: "What autoimmune disease causes joint pain in dogs?", answer: "Rheumatoid arthritis" },
-                { value: 1000, question: "What parasitic infection is transmitted by ticks?", answer: "Lyme disease" }
-              ]
-            },
-            {
-              title: "Pharmacology",
-              clues: [
-                { value: 200, question: "What antibiotic is commonly used for skin infections?", answer: "Cephalexin" },
-                { value: 400, question: "What drug is used to control seizures in dogs?", answer: "Phenobarbital" },
-                { value: 600, question: "What is the active ingredient in Benadryl?", answer: "Diphenhydramine" },
-                { value: 800, question: "What steroid is used for anti-inflammatory purposes?", answer: "Prednisone" },
-                { value: 1000, question: "What anticoagulant is used to prevent blood clots?", answer: "Heparin" }
-              ]
-            },
-            {
-              title: "Surgery",
-              clues: [
-                { value: 200, question: "What is the most common surgical procedure in dogs?", answer: "Spaying" },
-                { value: 400, question: "What type of anesthesia is commonly used in veterinary surgery?", answer: "Isoflurane" },
-                { value: 600, question: "What instrument is used to cut tissue during surgery?", answer: "Scalpel" },
-                { value: 800, question: "What is the term for surgical removal of a limb?", answer: "Amputation" },
-                { value: 1000, question: "What type of suture is absorbable?", answer: "Vicryl" }
-              ]
-            },
-            {
-              title: "Nutrition",
-              clues: [
-                { value: 200, question: "What nutrient is essential for healthy bones?", answer: "Calcium" },
-                { value: 400, question: "What vitamin is produced by sunlight exposure?", answer: "Vitamin D" },
-                { value: 600, question: "What is the main energy source in dog food?", answer: "Carbohydrates" },
-                { value: 800, question: "What mineral is important for thyroid function?", answer: "Iodine" },
-                { value: 1000, question: "What fatty acid is important for skin health?", answer: "Omega-3" }
-              ]
-            },
-            {
-              title: "Visual Diagnosis",
-              clues: [
-                { value: 200, question: "What condition shows as redness and swelling of the gums?", answer: "Gingivitis" },
-                { value: 400, question: "What skin condition appears as circular, red lesions?", answer: "Ringworm" },
-                { value: 600, question: "What eye condition causes cloudiness of the cornea?", answer: "Corneal ulcer" },
-                { value: 800, question: "What dental condition shows brown tartar buildup?", answer: "Periodontal disease" },
-                { value: 1000, question: "What abdominal condition shows distension and pain?", answer: "Bloat" }
-              ]
-            }
-          ]
-        }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-      // If forcing real, or other errors, propagate details to caller so they can inspect
-      return new Response(JSON.stringify({ error: 'GenAI request failed', detail: txt }), { status: 502 });
+      return new Response(
+        JSON.stringify({ error: 'GenAI request failed', status: resp.status, detail: truncate(raw) }),
+        { status: 502, headers: JSON_HEADERS }
+      );
     }
 
-    const json = await resp.json().catch(() => null);
-    // The REST response format: { candidates: [{ content: { parts: [{ text: '...' }] } }] }
-    let text = null as string | null;
-    if (json && Array.isArray(json.candidates) && json.candidates[0]?.content?.parts?.[0]?.text) {
-      text = json.candidates[0].content.parts[0].text;
+    const parsedEnvelope = safeJsonParse(raw);
+    const textPayload = extractCandidateText(parsedEnvelope);
+    if (!textPayload) {
+      return new Response(JSON.stringify({ error: 'No content generated' }), { status: 500, headers: JSON_HEADERS });
     }
 
-    if (!text) {
-      // As a fallback, attempt to stringify the whole response and parse JSON out of it.
-      try {
-        const s = JSON.stringify(json || {});
-        text = s;
-      } catch (e) {
-        return new Response(JSON.stringify({ error: 'No content generated' }), { status: 500 });
-      }
+    const parsedJson = safeJsonParse(textPayload) ?? tryExtractJson(textPayload);
+    if (!parsedJson || !Array.isArray(parsedJson.categories)) {
+      return new Response(JSON.stringify({ error: 'No JSON content parsed from GenAI response' }), { status: 500, headers: JSON_HEADERS });
     }
 
-    let data: any;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      // If text was plain JSON within a wrapper string, attempt to extract JSON substring.
-      const m = text.match(/\{[\s\S]*\}/);
-      if (m) {
-        try { data = JSON.parse(m[0]); } catch (ee) { data = null; }
-      }
-    }
+    const normalizedBoard = normalizeBoard(parsedJson.categories);
+    const mergedBoard = mergeUserCategories(existingCategories, normalizedBoard);
 
-    if (!data) return new Response(JSON.stringify({ error: 'No JSON content parsed from GenAI response' }), { status: 500 });
-
-    // Drop imagePrompt field (no server-side image generation in Pages runtime)
-    for (const category of data.categories) {
-      for (const clue of category.clues) {
-        if ('imagePrompt' in clue) delete clue.imagePrompt;
-      }
-    }
-
-    return new Response(JSON.stringify(data), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return new Response(JSON.stringify({ categories: mergedBoard }), { status: 200, headers: JSON_HEADERS });
   } catch (err: any) {
-    return new Response(JSON.stringify({ error: err?.message || 'Generation failed' }), { status: 500 });
+    const status = err?.name === 'AbortError' ? 504 : 500;
+    return new Response(JSON.stringify({ error: err?.message || 'Generation failed' }), { status, headers: JSON_HEADERS });
+  } finally {
+    clearTimeout(timeout);
   }
 };
+
+const sanitizeExistingCategories = (categories: any[]) =>
+  categories.slice(0, MAX_CATEGORIES).map((category) => ({
+    title: sanitizeText(category?.title),
+    clues: ensureClueArray(category?.clues).slice(0, CLUE_VALUES.length).map((clue) => ({
+      value: Number(clue?.value) || undefined,
+      question: sanitizeText(clue?.question),
+      answer: sanitizeText(clue?.answer),
+      imageUrl: validUrl(clue?.imageUrl) ? clue.imageUrl : undefined,
+    })),
+  }));
+
+const buildPrompt = (categories: ReturnType<typeof sanitizeExistingCategories>) => {
+  const intro = `Create a rigorous Veterinary Medicine Jeopardy board with ${MAX_CATEGORIES} distinct categories.
+Each category must contain exactly ${CLUE_VALUES.length} clues with dollar values ${CLUE_VALUES.join(', ')}.
+Ensure clues are medically accurate and targeted at veterinary students.
+Always include one category named "Visual Diagnosis" if the user did not supply one.`;
+
+  if (!categories.length) {
+    return `${intro}\nReturn JSON that matches the provided schema.`;
+  }
+
+  const providedSummary = JSON.stringify(categories);
+  return `${intro}\nThe user supplied the following partial board. Keep their text verbatim and only generate what is missing.\nDATA: ${providedSummary}`;
+};
+
+const buildGenAiPayload = (prompt: string) => ({
+  contents: [{ parts: [{ text: prompt }] }],
+  generationConfig: {
+    responseMimeType: 'application/json',
+    responseSchema: RESPONSE_SCHEMA,
+    temperature: 0.65,
+  },
+});
+
+const normalizeBoard = (categories: any[]) => {
+  return categories
+    .slice(0, MAX_CATEGORIES)
+    .map((cat, index) => ({
+      title: sanitizeText(cat?.title) || `Category ${index + 1}`,
+      clues: normalizeClues(cat?.clues, index),
+    }));
+};
+
+const normalizeClues = (clues: any[], categoryIndex: number) => {
+  const list = ensureClueArray(clues);
+  return CLUE_VALUES.map((value, clueIndex) => {
+    const candidate = list.find((item) => Number(item?.value) === value) ?? list[clueIndex] ?? {};
+    return {
+      value,
+      question: sanitizeText(candidate.question) || `Question ${categoryIndex + 1}-${clueIndex + 1}`,
+      answer: sanitizeText(candidate.answer) || 'Answer not provided',
+      imageUrl: validUrl(candidate.imageUrl) ? candidate.imageUrl : undefined,
+    };
+  });
+};
+
+const mergeUserCategories = (userCategories: any[], generated: ReturnType<typeof normalizeBoard>) => {
+  if (!userCategories.length) return padCategories(generated);
+
+  const pool = [...generated];
+  const merged: typeof generated = [];
+
+  userCategories.slice(0, MAX_CATEGORIES).forEach((userCat, index) => {
+    const baseIndex = findMatchingCategoryIndex(pool, userCat?.title);
+    const base = baseIndex >= 0 ? pool.splice(baseIndex, 1)[0] : pool.shift() ?? buildEmptyCategory(index);
+    merged.push(mergeCategory(userCat, base, index));
+  });
+
+  return padCategories([...merged, ...pool]);
+};
+
+const mergeCategory = (userCategory: any, baseCategory: { title: string; clues: any[] }, index: number) => {
+  const normalizedClues = ensureClueArray(userCategory?.clues);
+  return {
+    title: sanitizeText(userCategory?.title) || baseCategory.title || `Category ${index + 1}`,
+    clues: CLUE_VALUES.map((value, clueIndex) => {
+      const provided = normalizedClues.find((c) => Number(c?.value) === value) ?? normalizedClues[clueIndex];
+      if (provided && provided.question && provided.answer) {
+        return {
+          value,
+          question: sanitizeText(provided.question) || baseCategory.clues[clueIndex]?.question,
+          answer: sanitizeText(provided.answer) || baseCategory.clues[clueIndex]?.answer,
+          imageUrl: validUrl(provided.imageUrl) ? provided.imageUrl : baseCategory.clues[clueIndex]?.imageUrl,
+        };
+      }
+      return baseCategory.clues[clueIndex] ?? buildEmptyClue(value, clueIndex, index);
+    }),
+  };
+};
+
+const padCategories = (categories: { title: string; clues: any[] }[]) => {
+  const result = [...categories];
+  while (result.length < MAX_CATEGORIES) {
+    result.push(buildEmptyCategory(result.length));
+  }
+  return result.slice(0, MAX_CATEGORIES);
+};
+
+const buildEmptyCategory = (index: number) => ({
+  title: `Category ${index + 1}`,
+  clues: CLUE_VALUES.map((value, clueIndex) => buildEmptyClue(value, clueIndex, index)),
+});
+
+const buildEmptyClue = (value: number, clueIndex: number, categoryIndex: number) => ({
+  value,
+  question: `Placeholder clue ${categoryIndex + 1}-${clueIndex + 1}`,
+  answer: 'Answer pending',
+});
+
+const resolveGeminiKey = (locals: any) => {
+  const localsEnv = locals?.runtime?.env || locals?.env;
+  return localsEnv?.GEMINI_API_KEY || (import.meta.env as any)?.GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+};
+
+const resolveModelName = () => {
+  return (import.meta.env as any)?.GEMINI_MODEL || process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+};
+
+const extractCandidateText = (envelope: any) => {
+  if (!envelope) return null;
+  const candidate = envelope?.candidates?.[0];
+  return candidate?.content?.parts?.[0]?.text ?? null;
+};
+
+const safeJsonParse = (value: string) => {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+};
+
+const tryExtractJson = (value: string) => {
+  const match = value.match(/\{[\s\S]*\}/);
+  return match ? safeJsonParse(match[0]) : null;
+};
+
+const ensureClueArray = (clues: any): any[] => (Array.isArray(clues) ? clues : []);
+
+const sanitizeText = (value: any) => (typeof value === 'string' ? value.trim() : '');
+
+const validUrl = (value: any) => typeof value === 'string' && /^https?:\/\//i.test(value);
+
+const findMatchingCategoryIndex = (categories: { title: string }[], title: any) => {
+  if (typeof title !== 'string') return -1;
+  const target = title.trim().toLowerCase();
+  return categories.findIndex((cat) => cat.title.trim().toLowerCase() === target);
+};
+
+const truncate = (value: string, max = 500) => (value?.length > max ? `${value.slice(0, max)}…` : value || '');

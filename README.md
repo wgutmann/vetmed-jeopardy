@@ -9,7 +9,8 @@ A modern, real-time multiplayer Jeopardy-style trivia game designed for Veterina
 *   **Multiplayer**:
     *   **Host Mode**: The main screen acts as the game board and server. It displays a 4-letter room code.
     *   **Player Mode**: Users join via mobile devices using the Room Code.
-*   **Real-Time Buzzer System**: Low-latency buzzer interactions using WebRTC (**PeerJS**). The host sees exactly who buzzed in first.
+*   **Managed Realtime Transport**: Low-latency buzzer interactions flow through a Fastify-based orchestrator running on AWS App Runner (no PeerJS dependency required for production).
+*   **Real-Time Buzzer System**: Deterministic fan-out ensures the host sees exactly who buzzed in first.
 *   **Hybrid Game Generation**: Upload your own questions via CSV. If you provide a partial board, the AI will intelligently fill in the missing categories or clues to complete the board.
 *   **Score Tracking**: Persistent scoreboard for multiple players handled by the Host.
 
@@ -17,8 +18,8 @@ A modern, real-time multiplayer Jeopardy-style trivia game designed for Veterina
 
 *   **Framework**: React 18
 *   **Styling**: Tailwind CSS
-*   **AI**: Google GenAI SDK (@google/genai)
-*   **Networking**: PeerJS (WebRTC for peer-to-peer connections)
+*   **AI**: Google GenAI (REST)
+*   **Networking**: Fastify + WebSockets via AWS App Runner orchestrator
 *   **Local Development**: Vite
 *   **Deployment**: Optimized for static hosting platforms like Cloudflare Pages.
 
@@ -36,18 +37,28 @@ A modern, real-time multiplayer Jeopardy-style trivia game designed for Veterina
     ```
 
 3.  **Set up Environment Variables**
-    Create a `.env` file in the root directory to store your API key locally:
+    Create `.env.local` at the repo root with the following values:
     ```env
-    VITE_API_KEY=your_google_gemini_api_key
+    GEMINI_API_KEY=your-google-gemini-api-key
+    GEMINI_MODEL=gemini-1.5-flash
+    PUBLIC_SIGNALING_URL=http://localhost:8788
     ```
-    *Get an API key from [Google AI Studio](https://aistudio.google.com/).* 
-    *Note: Vite requires environment variables exposed to the client to be prefixed with `VITE_`.*
+    `PUBLIC_SIGNALING_URL` should point at the orchestrator service when running remotely.
 
-4.  **Run Development Server**
+4.  **Install orchestrator dependencies**
     ```bash
-    npm run dev
+    cd orchestrator
+    npm install
+    cd ..
     ```
-    Open the local URL provided by Vite in your browser.
+
+5.  **Run Development Servers**
+    Start the orchestrator service (Fastify + WebSockets) and the Astro UI in separate terminals:
+    ```bash
+    npm run orchestrator:dev
+    npm run dev -- --host
+    ```
+    The UI expects the orchestrator on `PUBLIC_SIGNALING_URL`.
 
 ## ☁️ Deployment (Cloudflare Pages)
 
@@ -79,3 +90,33 @@ Visual Diagnosis, 1000, Identify this cell type., Mast Cell
 ```
 
 **Hybrid Mode**: If you provide fewer than 6 categories, the AI will automatically generate the remaining categories to ensure a full game board.
+
+## 🛰 Realtime Orchestrator Deployment (Terraform + AWS App Runner)
+
+The realtime relay is packaged as a Node/TypeScript service under `orchestrator/` and deployed via AWS App Runner. Use the authenticated AWS CLI and Terraform configuration in `infra/` to provision infrastructure:
+
+1.  **Build and Tag the Image**
+    ```bash
+    cd orchestrator
+    npm run build
+    docker build -t vetmed-orchestrator:latest .
+    ```
+2.  **Push to ECR** (replace `${ACCOUNT_ID}`/`${REGION}` with real values)
+    ```bash
+    aws ecr get-login-password --region ${REGION} | docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com
+    docker tag vetmed-orchestrator:latest ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/vetmed-orchestrator:latest
+    docker push ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/vetmed-orchestrator:latest
+    ```
+3.  **Configure Terraform**
+    ```bash
+    cd ../infra
+    cp terraform.tfvars.example terraform.tfvars
+    # edit aws_region, container_image, signal_jwt_secret
+    terraform init
+    terraform apply
+    ```
+4.  **Wire Up the Front-End**
+    * Copy the `app_runner_service_url` output.
+    * Set `PUBLIC_SIGNALING_URL` (Cloudflare Pages project settings) to the App Runner HTTPS endpoint.
+
+Terraform creates an ECR repository, Secrets Manager entry for `SIGNALING_JWT_SECRET`, the App Runner IAM role, and the App Runner service itself. Subsequent deployments only need a new Docker push followed by `terraform apply -refresh-only` if no infra drift is expected.

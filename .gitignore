@@ -1,3 +1,6 @@
 node_modules
 /.env
 .env.local
+infra/.terraform/
+infra/terraform.tfstate*
+infra/terraform.tfvars

@@ -7,13 +7,14 @@
     "dev": "astro dev",
     "dev:key": "powershell -Command \"$env:GEMINI_API_KEY='%npm_config_gemini_key%'; npm run dev -- --host\"",
     "build": "astro build",
-    "preview": "astro preview"
+    "preview": "astro preview",
+    "orchestrator:dev": "npm --prefix orchestrator run dev",
+    "orchestrator:build": "npm --prefix orchestrator run build"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^11.0.0",
     "@astrojs/react": "^3.0.0",
     "@astrojs/tailwind": "^5.0.0",
-    "@google/genai": "^1.30.0",
     "astro": "^4.0.0",
     "peerjs": "^1.5.2",
     "react": "^18.2.0",

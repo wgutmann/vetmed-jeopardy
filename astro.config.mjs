@@ -1,14 +1,20 @@
 import { defineConfig } from 'astro/config';
+import cloudflare from '@astrojs/cloudflare';
 import react from '@astrojs/react';
 import tailwind from '@astrojs/tailwind';
 
 export default defineConfig({
-  output: process.env.NODE_ENV === 'production' ? 'static' : 'server',
+  output: 'server',
+  adapter: cloudflare({
+    platformProxy: {
+      enabled: process.env.CF_PAGES !== '1',
+    },
+  }),
   integrations: [react(), tailwind()],
   vite: {
     ssr: {
-      // Ensure these modules are bundled into SSR output (avoid runtime "Cannot find module 'tslib'" errors)
-      noExternal: ['tslib', '@google/genai'],
+      // Ensure tslib is bundled into the server output for Cloudflare
+      noExternal: ['tslib'],
     },
   },
 });

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
-// Script to run dev server with Gemini API key
+// Script to run the dev server with a one-off Gemini API key.
 // Usage: node dev-with-key.js "your-api-key-here"
+
+import { spawn } from 'node:child_process';
 
 const apiKey = process.argv[2];
 
@@ -10,16 +12,13 @@ if (!apiKey) {
   process.exit(1);
 }
 
-process.env.GEMINI_API_KEY = apiKey;
 console.log('Starting dev server with Gemini API key...');
-
-// Spawn the dev server
-const { spawn } = require('child_process');
 const child = spawn('npm', ['run', 'dev', '--', '--host'], {
   stdio: 'inherit',
-  env: { ...process.env }
+  env: { ...process.env, GEMINI_API_KEY: apiKey },
+  shell: process.platform === 'win32',
 });
 
 child.on('exit', (code) => {
-  process.exit(code);
+  process.exit(code ?? 0);
 });
