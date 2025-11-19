@@ -272,7 +272,7 @@ function unflatten(parsed, revivers) {
 const ACTION_QUERY_PARAMS = {
   actionName: "_astroAction"};
 
-const __vite_import_meta_env__ = {"ASSETS_PREFIX": undefined, "BASE_URL": "/", "DEV": false, "MODE": "production", "PROD": true, "PUBLIC_SIGNALING_URL": "http://localhost:8788", "SITE": undefined, "SSR": true};
+const __vite_import_meta_env__ = {"ASSETS_PREFIX": undefined, "BASE_URL": "/", "DEV": false, "MODE": "production", "PROD": true, "PUBLIC_SIGNALING_URL": "https://z8w3v8e3ri.us-east-2.awsapprunner.com", "SITE": undefined, "SSR": true};
 const codeToStatusMap = {
   // Implemented from tRPC error code table
   // https://trpc.io/docs/server/error-handling#error-codes

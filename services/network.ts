@@ -3,9 +3,9 @@ import type { NetworkMessage } from '../types';
 const getWin = () => (typeof window === 'undefined' ? undefined : window);
 
 const getBaseUrl = () => {
-  const configured = import.meta.env.PUBLIC_SIGNALING_URL || (getWin() as any)?.__SIGNALING_URL__;
+  const configured = import.meta.env.PUBLIC_SIGNALING_URL;
   if (configured) return configured.replace(/\/$/, '');
-  if (import.meta.env.DEV) return 'http://localhost:8788';
+  if (import.meta.env.DEV) return 'https://z8w3v8e3ri.us-east-2.awsapprunner.com';
   throw new Error('PUBLIC_SIGNALING_URL is not configured');
 };
 

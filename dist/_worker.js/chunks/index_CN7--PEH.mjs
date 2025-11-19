@@ -1,6 +1,6 @@
 globalThis.process ??= {}; globalThis.process.env ??= {};
 import { A as AstroError, i as i18nNoLocaleFoundInPath, R as ResponseSentError, f as MiddlewareNoDataOrNextCalled, g as MiddlewareNotAResponse, G as GetStaticPathsRequired, h as InvalidGetStaticPathsReturn, j as InvalidGetStaticPathsEntry, k as GetStaticPathsExpectedParams, l as GetStaticPathsInvalidRouteParam, P as PageNumberParamNotFound, m as NoMatchingStaticPathFound, n as PrerenderDynamicEndpointPathCollide, o as ReservedSlotName, p as RewriteWithBodyUsed, L as LocalsNotAnObject, q as PrerenderClientAddressNotAvailable, C as ClientAddressNotAvailable, S as StaticClientAddressNotAvailable, r as AstroResponseHeadersReassigned } from './astro/env-setup_DUaZ-hTo.mjs';
-import { g as getActionQueryString, d as deserializeActionResult, D as DEFAULT_404_ROUTE } from './astro-designed-error-pages_C4cwcmzF.mjs';
+import { g as getActionQueryString, d as deserializeActionResult, D as DEFAULT_404_ROUTE } from './astro-designed-error-pages_jWSilUEE.mjs';
 import { R as REROUTE_DIRECTIVE_HEADER, D as DEFAULT_404_COMPONENT, j as renderSlotToString, k as renderJSX, l as chunkToString, m as isRenderInstruction, o as originPathnameSymbol, n as ROUTE_TYPE_HEADER, A as ASTRO_VERSION, p as clientLocalsSymbol, q as clientAddressSymbol, s as responseSentSymbol$1, t as renderPage, u as REWRITE_DIRECTIVE_HEADER_KEY, v as REWRITE_DIRECTIVE_HEADER_VALUE, w as renderEndpoint } from './astro/server_DfC-QHMz.mjs';
 
 const ACTION_API_CONTEXT_SYMBOL = Symbol.for("astro.actionAPIContext");

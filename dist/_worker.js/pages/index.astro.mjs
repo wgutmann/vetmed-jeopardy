@@ -351,7 +351,7 @@ const PlayerController = ({
 };
 
 const getBaseUrl = () => {
-  const configured = "http://localhost:8788";
+  const configured = "https://z8w3v8e3ri.us-east-2.awsapprunner.com";
   return configured.replace(/\/$/, "");
 };
 const toWsUrl = (url) => url.replace(/^http/, "ws");

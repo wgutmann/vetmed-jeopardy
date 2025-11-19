@@ -13,7 +13,25 @@ export const buildServer = () => {
   const app = Fastify({ logger: true });
   const rooms = new RoomStore();
 
-  app.register(cors, { origin: true });
+  app.register(cors, {
+    origin: (origin, cb) => {
+      // Allow localhost, LAN, and App Runner origins
+      const allowed = [
+        /^https?:\/\/localhost(:\d+)?$/,
+        /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+        /^https?:\/\/192\.168\.\d+\.\d+(:\d+)?$/,
+        /^https?:\/\/z8w3v8e3ri\.us-east-2\.awsapprunner\.com$/,
+      ];
+      if (!origin || allowed.some((re) => re.test(origin))) {
+        cb(null, true);
+      } else {
+        cb(null, false);
+      }
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+  });
   app.register(websocketPlugin);
 
   app.get('/healthz', async () => ({ status: 'ok' }));
@@ -47,7 +65,7 @@ export const buildServer = () => {
     '/ws',
     { websocket: true },
     (socket, req: FastifyRequest) => {
-      const { token } = req.query as { token?: string };
+      const token = extractToken(req);
       if (!token) {
         socket.close(4001, 'Token missing');
         return;
@@ -59,7 +77,7 @@ export const buildServer = () => {
         const room = rooms.getRoom(claims.roomCode);
         if (!room) throw new Error('Room not found');
         ctx = { room, role: claims.role, playerId: claims.playerId };
-        rooms.attachSocket(room, claims.role, claims.playerId ?? claims.role, socket as WebSocket);
+        rooms.attachSocket(room, claims.role, claims.playerId ?? claims.role, socket);
       } catch (err) {
         socket.close(4002, (err as Error).message);
         return;
@@ -68,7 +86,7 @@ export const buildServer = () => {
       socket.on('message', (raw: Buffer) => {
         try {
           const data = JSON.parse(raw.toString());
-          handleMessage(ctx!, data, rooms, socket as WebSocket);
+          handleMessage(ctx!, data, rooms, socket);
         } catch (err) {
           socket.send(
             JSON.stringify({ type: 'ERROR', message: (err as Error).message || 'Invalid payload' })
@@ -83,6 +101,19 @@ export const buildServer = () => {
   );
 
   return app;
+};
+
+const extractToken = (req: FastifyRequest) => {
+  const queryToken = (req.query as { token?: string } | undefined)?.token;
+  if (queryToken) return queryToken;
+
+  try {
+    const rawUrl = req.raw?.url ?? '';
+    const url = new URL(rawUrl, 'http://localhost');
+    return url.searchParams.get('token') ?? undefined;
+  } catch {
+    return undefined;
+  }
 };
 
 const handleMessage = (

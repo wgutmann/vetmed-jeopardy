@@ -7,7 +7,24 @@ import { createToken, verifyToken } from './auth.js';
 export const buildServer = () => {
     const app = Fastify({ logger: true });
     const rooms = new RoomStore();
-    app.register(cors, { origin: true });
+    app.register(cors, {
+        origin: (origin, cb) => {
+            // Allow localhost, LAN, and App Runner origins
+            const allowed = [
+                /^https?:\/\/localhost(:\d+)?$/,
+                /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+                /^https?:\/\/192\.168\.\d+\.\d+(:\d+)?$/,
+                /^https?:\/\/z8w3v8e3ri\.us-east-2\.awsapprunner\.com$/,
+            ];
+            if (!origin || allowed.some((re) => re.test(origin))) {
+                cb(null, true);
+            }
+            else {
+                cb(null, false);
+            }
+        },
+        credentials: true,
+    });
     app.register(websocketPlugin);
     app.get('/healthz', async () => ({ status: 'ok' }));
     app.post('/rooms', async () => {

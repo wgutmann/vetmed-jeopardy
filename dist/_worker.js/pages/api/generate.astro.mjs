@@ -188,7 +188,7 @@ const buildEmptyClue = (value, clueIndex, categoryIndex) => ({
 });
 const resolveGeminiKey = (locals) => {
   const localsEnv = locals?.runtime?.env || locals?.env;
-  return localsEnv?.GEMINI_API_KEY || "replace-with-local-key";
+  return localsEnv?.GEMINI_API_KEY || "AIzaSyCyfOXVx3h9er2759kwFT0CUnFoEZu0fio";
 };
 const resolveModelName = () => {
   return "gemini-1.5-flash";
