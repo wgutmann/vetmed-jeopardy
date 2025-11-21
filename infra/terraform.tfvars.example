@@ -1,3 +1,0 @@
-aws_region          = "us-east-1"
-container_image     = "123456789012.dkr.ecr.us-east-1.amazonaws.com/vetmed-orchestrator:latest"
-signal_jwt_secret   = "replace-me"

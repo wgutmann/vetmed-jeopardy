@@ -1,0 +1,84 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Scoreboard from '../../components/Scoreboard.astro';
+---
+
+<Layout title="Play - Vet Med Jeopardy">
+    <main>
+        <h1>Game Room: {Astro.params.room}</h1>
+        <Scoreboard />
+        <button id="buzz-in">Buzz In!</button>
+    </main>
+</Layout>
+
+<style>
+	main {
+		margin: auto;
+		padding: 1rem;
+		width: 800px;
+		max-width: calc(100% - 2rem);
+		color: white;
+		font-size: 20px;
+		line-height: 1.6;
+	}
+    #buzz-in {
+        display: block;
+        width: 100%;
+        padding: 2rem;
+        font-size: 2rem;
+        background: red;
+        color: white;
+        border: none;
+        border-radius: 0.5rem;
+        cursor: pointer;
+    }
+</style>
+
+<script>
+    import { connectWebSocket, sendWebSocketMessage } from '../../scripts/aws-api.js';
+    import { createPeerConnection } from '../../scripts/webrtc-client.js';
+    import { getGameState, addPlayer, updateScore } from '../../scripts/game-logic.js';
+
+    let peerConnection;
+
+    function renderScoreboard() {
+        const gameState = getGameState();
+        const container = document.querySelector('main');
+        const scoreboard = container.querySelector('.scoreboard');
+        if (scoreboard) {
+            scoreboard.innerHTML = `
+                <h2>Scores</h2>
+                ${Object.entries(gameState.players).map(([id, player]) => `
+                    <div class="player">
+                        <span>${id}:</span>
+                        <span class="score">${player.score}</span>
+                    </div>
+                `).join('')}
+            `;
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const roomCode = new URL(window.location.href).pathname.split('/').pop();
+
+        connectWebSocket((message) => {
+            if (message.answer) {
+                peerConnection.setRemoteDescription(new RTCSessionDescription(message.answer));
+            } else if (message.candidate) {
+                peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
+            } else if (message.type === 'gamestate') {
+                // This is a simple way to update the game state.
+                // In a real app, you might want a more sophisticated state management solution.
+                Object.assign(getGameState(), message.state);
+                renderScoreboard();
+            }
+        });
+
+        peerConnection = createPeerConnection();
+        peerConnection.createOffer()
+            .then(offer => {
+                peerConnection.setLocalDescription(offer);
+                sendWebSocketMessage({ offer, roomCode });
+            });
+    });
+</script>

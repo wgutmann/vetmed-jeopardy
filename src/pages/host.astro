@@ -1,0 +1,145 @@
+---
+import Layout from '../layouts/Layout.astro';
+import GameBoard from '../components/GameBoard.astro';
+---
+
+<Layout title="Host Game - Vet Med Jeopardy">
+	<main>
+		<h1>Host a New Game</h1>
+		<div class="card">
+			<h2>Generate with AI</h2>
+			<p>Use AI to generate a full game, optionally guiding it with a topic.</p>
+			<div>
+				<input type of="checkbox" id="guide-ai-checkbox" />
+				<label for="guide-ai-checkbox">Guide AI generation with a prompt</label>
+			</div>
+			<div id="ai-prompt-container" style="display: none;">
+				<input type="text" id="ai-prompt" placeholder="e.g., focus on small animal surgery" />
+			</div>
+			<button id="generate-full-game">Generate Full Game</button>
+			<button id="complete-partial-game" style="display: none;">Complete Game with AI</button>
+		</div>
+		<div class="card">
+			<h2>Upload Questions</h2>
+			<p>Select a CSV file with your questions and categories.</p>
+			<input type="file" id="csv-upload" accept=".csv" />
+		</div>
+		<div id="game-board-container">
+			<GameBoard />
+		</div>
+	</main>
+</Layout>
+
+<style>
+	main {
+		margin: auto;
+		padding: 1rem;
+		width: 800px;
+		max-width: calc(100% - 2rem);
+		color: white;
+		font-size: 20px;
+		line-height: 1.6;
+	}
+	.card {
+		background: #23262d;
+		padding: 2rem;
+		border-radius: 0.5rem;
+		margin-bottom: 2rem;
+	}
+</style>
+
+<script>
+    import { connectWebSocket, sendWebSocketMessage } from '../scripts/aws-api.js';
+    import { createPeerConnection, createDataChannel } from '../scripts/webrtc-client.js';
+    import { parseCSV, getGameState, mergeCategories } from '../scripts/game-logic.js';
+
+    let peerConnection;
+    let dataChannel;
+
+    function renderGameBoard() {
+        const gameState = getGameState();
+        const container = document.getElementById('game-board-container');
+        // This is a simplified re-rendering. In a real app, you might use a library
+        // like Preact or SolidJS for more efficient rendering.
+        container.innerHTML = `
+            <div class="game-board">
+                ${gameState.categories.map(category => `
+                    <div class="category">
+                        <h2>${category.name}</h2>
+                        ${category.questions.map(q => `
+                            <div class="question" data-value="${q.value}">$${q.value}</div>
+                        `).join('')}
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        // Create a room
+        sendWebSocketMessage({ action: 'createroom' });
+
+        connectWebSocket((message) => {
+            // Handle incoming messages from the signaling server
+            if (message.offer) {
+                peerConnection = createPeerConnection();
+                peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer));
+                peerConnection.createAnswer()
+                    .then(answer => {
+                        peerConnection.setLocalDescription(answer);
+                        sendWebSocketMessage({ answer });
+                    });
+                dataChannel = createDataChannel(peerConnection);
+            }
+            if (message.categories) {
+                mergeCategories(message.categories);
+                renderGameBoard();
+                sendMessage({ type: 'gamestate', state: getGameState() });
+            }
+        });
+    });
+
+    document.getElementById('guide-ai-checkbox').addEventListener('change', (event) => {
+        const promptContainer = document.getElementById('ai-prompt-container');
+        promptContainer.style.display = event.target.checked ? 'block' : 'none';
+    });
+
+    document.getElementById('generate-full-game').addEventListener('click', () => {
+        const guideAi = document.getElementById('guide-ai-checkbox').checked;
+        const prompt = document.getElementById('ai-prompt').value;
+        sendWebSocketMessage({
+            action: 'generatequestions',
+            data: {
+                type: 'full',
+                prompt: guideAi ? prompt : null,
+            },
+        });
+    });
+
+    document.getElementById('complete-partial-game').addEventListener('click', () => {
+        const gameState = getGameState();
+        sendWebSocketMessage({
+            action: 'generatequestions',
+            data: {
+                type: 'partial',
+                existingCategories: gameState.categories,
+            },
+        });
+    });
+
+    document.getElementById('csv-upload').addEventListener('change', (event) => {
+        const file = event.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                parseCSV(e.target.result);
+                renderGameBoard();
+                // Send the new game state to the other players
+                sendMessage({ type: 'gamestate', state: getGameState() });
+            };
+            reader.readAsText(file);
+        }
+    });
+
+
+</script>

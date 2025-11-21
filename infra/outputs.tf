@@ -1,7 +1,0 @@
-output "ecr_repository_url" {
-  value = aws_ecr_repository.orchestrator.repository_url
-}
-
-output "app_runner_service_url" {
-  value = aws_apprunner_service.orchestrator.service_url
-}

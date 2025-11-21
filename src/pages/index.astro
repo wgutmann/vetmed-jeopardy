@@ -1,8 +1,63 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import App from '../../App.tsx';
 ---
 
 <Layout title="Vet Med Jeopardy">
-  <App client:load />
+	<main>
+		<h1>Vet Med Jeopardy</h1>
+		<div class="card">
+			<h2>Create a Game</h2>
+			<p>Hosts can create a new game room here.</p>
+			<a href="/host" class="button">Create Game</a>
+		</div>
+		<div class="card">
+			<h2>Join a Game</h2>
+			<p>Players can join an existing game using a room code.</p>
+			<form id="join-form">
+				<input type="text" id="room-code" placeholder="Enter Room Code" />
+				<button type="submit">Join Game</button>
+			</form>
+		</div>
+	</main>
 </Layout>
+
+<script>
+	document.getElementById('join-form').addEventListener('submit', function(event) {
+		event.preventDefault();
+		const roomCode = document.getElementById('room-code').value;
+		if (roomCode) {
+			window.location.href = `/play/${roomCode}`;
+		}
+	});
+</script>
+
+<style>
+	main {
+		margin: auto;
+		padding: 1rem;
+		width: 800px;
+		max-width: calc(100% - 2rem);
+		color: white;
+		font-size: 20px;
+		line-height: 1.6;
+	}
+	.card {
+		background: #23262d;
+		padding: 2rem;
+		border-radius: 0.5rem;
+		margin-bottom: 2rem;
+	}
+	.button {
+		display: inline-block;
+		padding: 0.5rem 1rem;
+		background: var(--accent);
+		color: white;
+		text-decoration: none;
+		border-radius: 0.25rem;
+	}
+	input {
+		padding: 0.5rem;
+		border-radius: 0.25rem;
+		border: 1px solid #ccc;
+	}
+</style>

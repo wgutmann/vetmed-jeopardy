@@ -1,0 +1,46 @@
+---
+export interface Props {
+    categories: {
+        name: string;
+        questions: {
+            question: string;
+            answer: string;
+            value: number;
+            image?: string;
+        }[];
+    }[];
+}
+
+const { categories = [] } = Astro.props;
+---
+<div class="game-board">
+    {categories.map(category => (
+        <div class="category">
+            <h2>{category.name}</h2>
+            {category.questions.map(q => (
+                <div class="question" data-value={q.value}>${q.value}</div>
+            ))}
+        </div>
+    ))}
+</div>
+
+<style>
+    .game-board {
+        display: flex;
+        gap: 1rem;
+    }
+    .category {
+        flex: 1;
+        background: #23262d;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        text-align: center;
+    }
+    .question {
+        background: #13151a;
+        padding: 1rem;
+        margin-top: 1rem;
+        border-radius: 0.25rem;
+        cursor: pointer;
+    }
+</style>

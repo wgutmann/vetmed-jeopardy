@@ -1,0 +1,34 @@
+---
+export interface Props {
+    players: {
+        [id: string]: {
+            score: number;
+        }
+    };
+}
+
+const { players = {} } = Astro.props;
+---
+<div class="scoreboard">
+    <h2>Scores</h2>
+    {Object.entries(players).map(([id, player]) => (
+        <div class="player">
+            <span>{id}:</span>
+            <span class="score">{player.score}</span>
+        </div>
+    ))}
+</div>
+
+<style>
+    .scoreboard {
+        background: #23262d;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin-bottom: 2rem;
+    }
+    .player {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.5rem;
+    }
+</style>
